@@ -16,9 +16,23 @@ The scaffold is distributed as a Claude Code plugin — one versioned source, no
 
 This provides the `sdd-orchestrator` skill (the full task lifecycle) and all six agents (architect, brainstorm, task, test, security, review). Restart the session after installing.
 
-**Migrating a copy-mode project**: after installing the plugin, delete the project's local `.claude/agents/` and the orchestrator content of `.claude/CLAUDE.md` — local copies override the plugin and reintroduce drift. Keep the project's `.claude/settings.json` (permissions are project-specific; see `.claude/settings.json` here for the reference allowlist).
+**Migrating a copy-mode project**: after installing the plugin, delete the project's local `.claude/agents/` — local copies override the plugin and reintroduce drift. Keep the project's `.claude/settings.json` (permissions are project-specific; see `.claude/settings.json` here for the reference allowlist).
 
-After installing or updating, run the agent canary before trusting delegation: have task-agent read a nonce file you just created, report `shasum -a 256` of it (compare against your own), and report a deliberately failing command's exit code.
+For `.claude/CLAUDE.md`, do **not** just delete the orchestrator content and leave a passive note. CLAUDE.md is always in context; a skill only fires when the harness matches user phrasing against its `description` — that's probabilistic, not guaranteed. Replace the orchestrator content with a pointer that explicitly instructs invoking the skill for the known trigger phrases, e.g.:
+
+```
+This project uses the sdd-scaffold plugin. Orchestrator protocol and lifecycle agents
+come from the plugin — do not add local .claude/agents/ or orchestrator instructions here.
+
+Activation: when the user asks to begin/continue/resume executing a SPEC file, describes
+new work with no SPEC yet, or references a specific failing task, invoke the
+sdd-scaffold:sdd-orchestrator skill via the Skill tool before doing anything else. Do not
+rely on implicit pattern-matching alone.
+```
+
+After committing, run a **live activation test** before trusting the workflow: say "continue" in a fresh message and confirm the skill actually fires (it should read AGENT_LOG.md and identify the next task) — don't just assume it will.
+
+After installing or updating, also run the agent canary before trusting delegation: have task-agent read a nonce file you just created, report `shasum -a 256` of it (compare against your own), and report a deliberately failing command's exit code.
 
 Legacy copy-mode (no plugin): `./sync-scaffold.sh /path/to/project`.
 
