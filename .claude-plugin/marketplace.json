@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "sdd-scaffold",
+  "description": "Spec-Driven Development scaffold for Claude Code — one plugin, versioned, no per-project copy drift.",
+  "owner": {
+    "name": "Gian Piero Canevari",
+    "url": "https://github.com/Gpiero19"
+  },
+  "plugins": [
+    {
+      "name": "sdd-scaffold",
+      "description": "SDD orchestrator skill + six lifecycle agents (architect, brainstorm, task, test, security, review) with truthfulness protocol and evidence-based reports.",
+      "source": "./",
+      "category": "workflow"
+    }
+  ]
+}

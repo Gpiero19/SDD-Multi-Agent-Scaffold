@@ -1,0 +1,9 @@
+{
+  "name": "sdd-scaffold",
+  "version": "1.0.0",
+  "description": "Spec-Driven Development multi-agent scaffold: orchestrator skill plus architect, brainstorm, task, test, security, and review agents with truthfulness protocol and evidence-based reports.",
+  "author": {
+    "name": "Gian Piero Canevari",
+    "url": "https://github.com/Gpiero19"
+  }
+}

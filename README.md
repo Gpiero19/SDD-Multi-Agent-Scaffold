@@ -5,6 +5,25 @@ Designed for production-grade company websites and web applications.
 
 ---
 
+## Install as a plugin (preferred)
+
+The scaffold is distributed as a Claude Code plugin — one versioned source, no per-project copy drift. In any project's Claude Code session:
+
+```
+/plugin marketplace add Gpiero19/SDD-Multi-Agent-Scaffold
+/plugin install sdd-scaffold@sdd-scaffold
+```
+
+This provides the `sdd-orchestrator` skill (the full task lifecycle) and all six agents (architect, brainstorm, task, test, security, review). Restart the session after installing.
+
+**Migrating a copy-mode project**: after installing the plugin, delete the project's local `.claude/agents/` and the orchestrator content of `.claude/CLAUDE.md` — local copies override the plugin and reintroduce drift. Keep the project's `.claude/settings.json` (permissions are project-specific; see `.claude/settings.json` here for the reference allowlist).
+
+After installing or updating, run the agent canary before trusting delegation: have task-agent read a nonce file you just created, report `shasum -a 256` of it (compare against your own), and report a deliberately failing command's exit code.
+
+Legacy copy-mode (no plugin): `./sync-scaffold.sh /path/to/project`.
+
+---
+
 ## Prerequisites
 
 Before starting any project with this scaffold:
