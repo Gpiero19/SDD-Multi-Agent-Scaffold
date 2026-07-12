@@ -225,6 +225,7 @@ If any single gate hits 3 retries without passing → log as BLOCKED, surface to
 6. On test **FAIL** → re-delegate to `task-agent` with full failure output plus the failure output from any prior retry of this same task, increment retry count
 7. On test **PASS**, check coverage:
    - Coverage below threshold defined in the active SPEC-0X file under "Test coverage threshold" → treat as FAIL (re-delegate to task-agent)
+   - Coverage reported as **"not measured"** while a threshold is in effect (the SPEC threshold is not `N/A`) → treat as FAIL and surface: the coverage tool was not run, so the gate cannot be verified. Never pass a task on an unverified coverage gate. `opted out (N/A in SPEC)` is the only non-numeric coverage result that passes.
 8. Once tests pass, delegate to `security-agent`
 9. Handle the security-agent result:
    - **CLEAR** → delegate to `review-agent` normally
@@ -308,6 +309,18 @@ When a completed task introduces any of the following, re-invoke `architect-agen
 
 Log the architecture update in `AGENT_LOG.md`.
 
+This trigger is not left to memory across tasks — it is enforced via the **Arch-impact** field on each task's final audit-log entry (see Audit log rule). Answer that field explicitly every task.
+
+### ADR / SPEC conflict resolution
+
+When review-agent flags an implementation as diverging from a decision recorded in ARCHITECTURE.md or one of its ADRs, you may **not** dismiss the flag by re-reading the SPEC's Definition-of-Done alone.
+
+- If the implementation simply doesn't match the **task spec** → this is a normal `CHANGES NEEDED`; re-delegate to task-agent (Feature step 10). Unchanged.
+- If the implementation matches the SPEC but conflicts with an **ADR**, or the ADR and SPEC disagree with each other → resolve the conflict by amending one document explicitly, never by silently adopting the weaker one:
+  - SPEC is authoritative → re-invoke architect-agent to **append a superseding ADR** (never edit the existing ADR in place — ADRs are immutable) recording the changed decision.
+  - ADR is authoritative → amend the SPEC to match, then re-delegate the implementation to task-agent.
+- Record which document was amended in `AGENT_LOG.md` before continuing.
+
 ---
 
 ## AGENT_LOG.md archival rule
@@ -333,6 +346,7 @@ After **every** subagent completes (pass, fail, retry, or blocked), append to `A
 **Branch**: feature/<SPEC-number>-<task-name> | merged | deleted | n/a
 **SPEC**: <filename of active SPEC, e.g. SPEC-02-ecommerce.md>
 **Files changed**: <list or "none">
+**Arch-impact**: required on a task's final (merge/complete) entry — `none`, or the new service/dependency/pattern/auth/schema it introduced (per the ARCHITECTURE.md update rule triggers) plus whether architect-agent was re-invoked before the next task begins; `n/a` on intermediate per-agent entries
 **Notes**: <any relevant context, errors, or decisions>
 ---
 ```

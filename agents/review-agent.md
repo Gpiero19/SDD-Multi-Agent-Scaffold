@@ -86,6 +86,7 @@ Check spec compliance first. If the implementation doesn't match the task spec, 
 - Do not flag style issues if a linter/formatter is in the stack — note "handled by linter" instead
 - Do not nitpick — only flag issues that would cause bugs, production incidents, security gaps, or meaningful maintenance pain
 - Do not re-check security concerns — that is security-agent's responsibility
+- When flagging an architecture-conformance gap, cite the exact ARCHITECTURE.md section or **ADR number** (e.g. "violates ADR-011") it diverges from — so the orchestrator cannot resolve the flag by re-reading the SPEC alone. A discrepancy against a recorded ADR is not the same as a plain style nit.
 
 ## Report format (always end with exactly this structure)
 
