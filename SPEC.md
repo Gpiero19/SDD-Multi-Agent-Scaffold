@@ -5,6 +5,15 @@
 
 ---
 
+## Release
+**Merge target**: main | spec/<slug>
+
+Where approved tasks land. A literal git ref, not a status.
+- `main` — each task ships as it passes review.
+- any other ref — an integration branch. Tasks accumulate there, `main` stays untouched, and promotion to `main` happens only when the human explicitly asks for it.
+
+The orchestrator reads this before Task 1. If it is missing, it asks once and writes the answer here.
+
 ## Goal
 One paragraph. What this implements, for whom, and why.
 
@@ -39,7 +48,7 @@ One paragraph. What this implements, for whom, and why.
 - GDPR / data privacy considerations:
 
 ## Definition of done
-- [ ] All tasks completed and merged to main
+- [ ] All tasks completed and merged to the declared merge target
 - [ ] All previously passing tests still pass
 - [ ] Security scan returned CLEAR or LOW only
 - [ ] AGENT_LOG.md updated with all entries

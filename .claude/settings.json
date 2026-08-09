@@ -4,7 +4,7 @@
       "Read(*)",
       "Write(*)",
       "Edit(*)",
-      "Bash(git push origin main)",
+      "Bash(git push origin HEAD)",
       "Bash(git pull)",
       "Bash(git merge feature/*)",
       "Bash(git branch -d feature/*)",

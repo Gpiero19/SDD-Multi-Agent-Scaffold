@@ -66,6 +66,21 @@ If the user says "not applicable" or "default" for any field, write that explici
 in the SPEC — do not leave fields blank. A blank field is ambiguous;
 "N/A" or "default" is a decision.
 
+## Release field — always ask
+
+Separately from Constraints, always establish the `## Release` section's
+**Merge target** before writing the SPEC. Ask it plainly:
+
+> "Should approved tasks ship to `main` as they pass, or accumulate on an
+> integration branch so you can test the whole feature before it goes live?"
+
+- Ships as it goes → `Merge target: main`
+- Test before release → `Merge target: spec/<slug>`, using a short slug from the feature name
+
+Never guess this one. Whether work reaches production is the user's decision, not
+an inference from how the feature sounds. If the project is already live, prefer
+asking even when the answer seems obvious.
+
 ## Design proposal
 
 After gathering enough context:
@@ -115,6 +130,15 @@ Use this exact format:
 
 ---
 
+## Release
+**Merge target**: main | spec/<slug>
+
+Where approved tasks land. A literal git ref, not a status.
+- `main` — each task ships as it passes review.
+- any other ref — an integration branch. Tasks accumulate there, `main` stays untouched, and promotion to `main` happens only when the human explicitly asks for it.
+
+The orchestrator reads this before Task 1. If it is missing, it asks once and writes the answer here.
+
 ## Goal
 One paragraph. What this implements, for whom, and why.
 
@@ -149,7 +173,7 @@ One paragraph. What this implements, for whom, and why.
 - GDPR / data privacy considerations:
 
 ## Definition of done
-- [ ] All tasks completed and merged to main
+- [ ] All tasks completed and merged to the declared merge target
 - [ ] All previously passing tests still pass
 - [ ] Security scan returned CLEAR or LOW only
 - [ ] AGENT_LOG.md updated with all entries

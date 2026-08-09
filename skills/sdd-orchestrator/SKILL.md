@@ -66,8 +66,43 @@ Once a SPEC has been confirmed (either existing or just produced by brainstorm-a
    - If it exists → continue to step 3
 3. Read `AGENT_LOG.md` to check if any tasks were already completed
 4. Identify the next incomplete task and confirm which SPEC is active
+5. **Resolve the merge target** — see below. Do this before Task 1, never later.
 
 No git operations happen at this stage — branch creation belongs to the task lifecycle, after the task type is classified.
+
+### Resolving the merge target
+
+Read the `**Merge target**:` field from the `## Release` section of the active SPEC.
+
+| Field value | What it means |
+|---|---|
+| `main` | Every approved task merges to `main`, as it always has |
+| any other ref (e.g. `spec/origin-fragment-01`) | An **integration branch**. Every task merges there. `main` is never touched by this SPEC. |
+| absent | **Ask the human once** (see below) |
+
+The value is a literal git ref that you execute against — not a status to interpret. Any branch name is legal; `spec/<slug>` is the recommended convention for new work, not a requirement. A SPEC whose work is already underway on a differently-named branch keeps that branch.
+
+**If the field is absent**, ask exactly once, before Task 1:
+
+> "SPEC-0X does not declare a merge target. Should approved tasks merge to `main` (shipped as they pass), or accumulate on an integration branch for testing before release? If the latter, I suggest `spec/<slug>`."
+
+Then **write the answer into the SPEC file** under a `## Release` section before continuing. Never ask again for this SPEC — on any later session, resume reads the field from the file. Never assume a default: a missing field is a question, not a value.
+
+**If the target branch already exists**, use it exactly as it is. Do not reset it, rebase it, or reconcile it against `main` — it may hold deliberately unreleased work.
+
+**If the target branch exists and has diverged from `main`**, that is normal for a staged SPEC and is not an error. Report it and continue:
+
+> "Merge target `<ref>` exists and is N commits ahead of `main` (and M behind). Using it as-is — no rebase, no reconcile. Continuing with Task 1."
+
+**If the target branch cannot be used** — it does not exist and cannot be created, or the repository is in a state that prevents checkout — **STOP**, log as BLOCKED in AGENT_LOG.md, and surface to the human in this session:
+
+> "BLOCKED before Task 1: merge target `<ref>` could not be prepared — [exact git error]. No task has been started and nothing has been modified. Tell me how to proceed."
+
+Never begin Task 1 with an unresolved target. A silent stop reads as "the task did nothing"; a BLOCKED surface reads as "it stopped for a reason" — always produce the second.
+
+**If the field changes while a SPEC is in flight** (the file is edited mid-SPEC so the target no longer matches what earlier tasks merged into), do **not** silently re-route. **STOP**, log as BLOCKED, and surface:
+
+> "BLOCKED: SPEC-0X's merge target changed from `<old>` to `<new>` after [N] task(s) already merged to `<old>`. Re-routing now would split this SPEC across two branches. Tell me which target is correct and whether the already-merged work should move."
 
 ---
 
@@ -121,10 +156,12 @@ Once the human approves ARCHITECTURE.md and the MCP servers are active, proceed 
 
 ## Git branching strategy
 
-- **Feature tasks** always run on a `feature/<SPEC-number>-<task-name>` branch — never directly on main
-- **Setup tasks** run directly on main — they are scaffolding and config, not shippable features
+Every branch and merge below is relative to the SPEC's **merge target** (resolved at Execution startup). When the target is `main`, this is the original behaviour unchanged.
+
+- **Feature tasks** always run on a `feature/<SPEC-number>-<task-name>` branch cut from the merge target — never directly on the target itself
+- **Setup tasks** run directly on the **merge target** — they are scaffolding and config, not shippable features. When the target is an integration branch, setup commits land there and not on `main`: a staged SPEC must not leak config or dependency changes into production ahead of the feature work they belong to.
 - All git operations (branch, commit, merge, push) are performed by the orchestrator — task-agent never runs git commands
-- The `main` branch is always clean and working
+- The merge target is always clean and working. `main` is only ever written to by a SPEC whose target *is* `main`, or by an explicit human-requested promotion.
 
 Branch naming convention: `feature/<SPEC-number>-<task-name-kebab-case>`
 Examples: `feature/SPEC-01-user-auth`, `feature/SPEC-02-header-component`, `feature/SPEC-02-api-integration`
@@ -180,11 +217,12 @@ To temporarily upgrade any agent during a difficult task (e.g. task-agent stuck 
 7. Delegate to `review-agent` (read-only check)
 8. If review returns APPROVED → proceed to step 10
 9. If any gate returns failure → see retry rules below
-10. After review APPROVED:
+10. After review APPROVED — commit to the **merge target**, not to `main`:
     ```
+    git checkout <merge-target>
     git add -A
     git commit -m "setup(<SPEC-number>): <task-name>"
-    git push origin main
+    git push origin HEAD
     ```
     Then append to AGENT_LOG.md and move to next task
 
@@ -202,14 +240,16 @@ If any single gate hits 3 retries without passing → log as BLOCKED, surface to
 
 ### Feature task lifecycle
 
-0. **Create branch**: Before delegating anything, run:
+0. **Create branch**: Before delegating anything, cut the task branch from the **merge target**:
    ```
-   git checkout main
+   git checkout <merge-target>
    git pull
    git checkout -b feature/<SPEC-number>-<task-name>
    ```
-   Example: `feature/SPEC-02-user-auth`
-   Confirm the branch was created before proceeding.
+   Example: target `main` → `feature/SPEC-02-user-auth` off `main`.
+   Example: target `spec/origin-fragment-01` → `feature/SPEC-11-canvas-runtime` off `spec/origin-fragment-01`.
+   Confirm the branch was created, and that it was cut from the target, before proceeding.
+   `git pull` is expected to fail on an integration branch with no upstream — that is not an error; continue.
 1. Write a clear task spec: what, why, which files, acceptance criteria
 2. Delegate to `task-agent`. Include in the delegation prompt:
    - The full task spec (what, why, files, acceptance criteria)
@@ -232,13 +272,14 @@ If any single gate hits 3 retries without passing → log as BLOCKED, surface to
    - **ISSUES FOUND**, overall risk **LOW or MEDIUM** → delegate to `review-agent` with the security report attached so the reviewer is aware
    - **ISSUES FOUND**, overall risk **HIGH** → re-delegate to `task-agent` with the security report, increment retry count
 10. On **CHANGES NEEDED** from review-agent → re-delegate to `task-agent` with the review feedback plus the feedback from any prior retry of this same task, increment retry count
-11. On **APPROVED** → merge directly to `main`:
+11. On **APPROVED** → merge to the **merge target**:
     ```
-    git checkout main
+    git checkout <merge-target>
     git merge feature/<SPEC-number>-<task-name>
     git branch -d feature/<SPEC-number>-<task-name>
-    git push origin main
+    git push origin HEAD
     ```
+    This lands the task on the target only. When the target is not `main`, nothing has shipped — do not report the work as released, and do not touch `main`.
 12. Log to `AGENT_LOG.md` and move to the next task
 
 ### Implementation complete
@@ -246,16 +287,27 @@ If any single gate hits 3 retries without passing → log as BLOCKED, surface to
 Triggered when there are no more tasks in the active SPEC. Run these steps in order:
 
 1. Verify every item in the active SPEC-0X file's "Definition of done" checklist:
-   - [ ] All tasks completed and merged to main
+   - [ ] All tasks completed and merged to the declared merge target
    - [ ] All previously passing tests still pass
    - [ ] Security scan returned CLEAR or LOW only
    - [ ] AGENT_LOG.md updated with all entries for this SPEC
    - [ ] Architecture doc updated if new patterns were introduced
 
-2. If all items pass → announce to the human:
+2. If all items pass, announce according to the merge target.
+
+   **Target was `main`** — the work has shipped:
    > "Implementation complete: [SPEC filename]. All [N] tasks merged to main.
    > Definition of done: verified.
    > Ready for next implementation — start brainstorming inline for the next SPEC, or say 'done' to close this session."
+
+   **Target was an integration branch** — the work has *not* shipped. **STOP** here:
+   > "Implementation complete: [SPEC filename]. All [N] tasks merged to `<merge-target>`.
+   > Definition of done: verified. Gates: lint / typecheck / tests / security / review all passed.
+   > **Production has NOT been updated — `main` is untouched.**
+   > Preview: [branch preview URL if the platform provides one]
+   > AWAITING RELEASE DECISION. Test it, then tell me explicitly if you want it promoted to main."
+
+   Then wait. Do not promote, do not offer to promote as the next step, and do not treat silence or a general approval of the work as authorisation.
 
 3. If any item fails → log it as BLOCKED in AGENT_LOG.md with the specific failure detail and surface it to the human before closing.
 
@@ -266,9 +318,27 @@ Triggered when there are no more tasks in the active SPEC. Run these steps in or
    **Action**: All tasks executed and verified against Definition of done
    **Outcome**: complete | blocked
    **SPEC**: <filename>
+   **Merge-target**: <ref> — promoted to main | awaiting release decision | n/a (target was main)
    **Notes**: <any outstanding items or risks>
    ---
    ```
+
+### Promotion to main
+
+Merging an integration branch into `main` is a **release**. It is the only step in this protocol that puts work in front of real users, and it is never yours to initiate.
+
+**Promote only when the human asks for it in the current turn.** Not on a completed SPEC, not on green gates, not on a passing review, not on a definition of done fully checked, not on general approval of the work, and not because promotion is the obvious next step. None of those are authorisation — they are the preconditions that make authorisation *possible*.
+
+Statements like "this is done", "we're finished", "it all passes", "looks good" and "the feature is ready" describe the work. They do not request a release. When you receive one and the SPEC is staged, confirm completion and stop — if you think a release is warranted, you may say so, but you may not act on it.
+
+When the human does explicitly request promotion:
+```
+git checkout main
+git pull
+git merge <merge-target>
+git push origin HEAD
+```
+Then log the outcome with `**Merge-target**: <ref> — promoted to main`, and report exactly what landed. If the merge conflicts, **STOP**, log as BLOCKED with the conflict details, and surface to the human — never resolve a release conflict automatically.
 
 ### Retry counter reconstruction on session resume
 
@@ -344,6 +414,8 @@ After **every** subagent completes (pass, fail, retry, or blocked), append to `A
 **Why**: <the reasoning behind the action>
 **Outcome**: pass | fail | retry | blocked | complete
 **Branch**: feature/<SPEC-number>-<task-name> | merged | deleted | n/a
+**Merge-target**: the ref this task merges into (`main` or the integration branch) — required on every entry, so the log alone answers whether a task shipped
+**Scaffold-version**: the sdd-scaffold plugin version in effect (from `.claude-plugin/plugin.json`) — required on a task's final entry, so a behaviour can be traced to the protocol version that produced it
 **SPEC**: <filename of active SPEC, e.g. SPEC-02-ecommerce.md>
 **Files changed**: <list or "none">
 **Arch-impact**: required on a task's final (merge/complete) entry — `none`, or the new service/dependency/pattern/auth/schema it introduced (per the ARCHITECTURE.md update rule triggers) plus whether architect-agent was re-invoked before the next task begins; `n/a` on intermediate per-agent entries
@@ -359,10 +431,12 @@ Never skip a log entry. Every action by every agent must be recorded.
 
 - Never trust a subagent's reported output alone. Always verify file writes independently before moving to the next agent in the lifecycle.
 - Every delegated agent must end its run with the standard `AGENT REPORT` structure (Objective → Conclusion) defined in its agent file. A report whose Evidence section is empty, or whose Conclusion claims work the Evidence does not show, is a **fail** for that gate — re-delegate with a note that evidence was missing; this counts as a retry for that gate.
-- Merge happens exactly once per feature task — after review approval, directly into `main`. No separate commit step and no draft PR; the merge itself lands the work on `main`.
+- Merge happens exactly once per feature task — after review approval, directly into the SPEC's **merge target**. No separate commit step and no draft PR; the merge itself lands the work on the target.
+- Resolve the merge target before Task 1. A missing `**Merge target**:` field is a question to ask the human once, never a default to assume.
+- **Never merge an integration branch into `main` unless the human requests that promotion in the current turn.** A completed SPEC, green gates, a passing review and a satisfied definition of done are not authorisation — they are what makes authorisation possible.
 - Always pass the absolute project root path to task-agent. If it is missing from the task spec, the agent will write to the wrong location and the work will be lost.
-- Feature tasks always run on a `feature/<SPEC-number>-<task-name>` branch — never directly on main
-- Setup tasks run directly on main — they are scaffolding and config, not shippable features
+- Feature tasks always run on a `feature/<SPEC-number>-<task-name>` branch cut from the merge target — never directly on the target
+- Setup tasks run directly on the merge target — they are scaffolding and config, not shippable features. Never on `main` when the target is an integration branch.
 - Never let task-agent run git commands — all git operations are the orchestrator's responsibility
 - Always verify the active branch before delegating to task-agent (run `git branch --show-current`).
 - If a merge fails due to conflicts, log the task as BLOCKED in AGENT_LOG.md with the conflict details and move to the next task — do not attempt to resolve conflicts automatically.

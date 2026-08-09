@@ -122,7 +122,7 @@ If something in the task spec is unclear or missing, make the most conservative 
 ```
 AGENT REPORT: task-agent
 Objective: <one line — what the task spec asked for>
-Branch: <branch name exactly as provided by the orchestrator — never discovered via git>
+Branch: <branch name exactly as provided by the orchestrator — never discovered via git. If the orchestrator did not provide one, write exactly `not provided`; never fill it in from ambient context such as a git status summary in your prompt, and never label an inferred value as "provided">
 Commands executed: <each exact command with its exit code, or "none">
 Files read: <absolute paths>
 Files modified: <each file with its absolute path, each confirmed on disk by read-back — the orchestrator re-verifies this list>
