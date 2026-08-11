@@ -13,7 +13,10 @@ produces SPEC files; `SPEC.md` is the human-readable reference. Change only one
 and new SPECs silently lose the field you added.
 
 Bump `.claude-plugin/plugin.json` on every change: MINOR when agent or protocol
-behaviour changes, PATCH for wording only. Projects consume this plugin from a
+behaviour changes, PATCH for wording only. **The `**Scaffold-version:**` stamp at
+the top of `skills/sdd-orchestrator/SKILL.md` must be bumped in the same commit** —
+it is what the orchestrator actually reports in the audit log, because it cannot
+resolve `plugin.json`'s path at runtime. Projects consume this plugin from a
 cached install — a change is not live anywhere until
 `claude plugin marketplace update sdd-scaffold` and
 `claude plugin update sdd-scaffold@sdd-scaffold` have both run, and the session

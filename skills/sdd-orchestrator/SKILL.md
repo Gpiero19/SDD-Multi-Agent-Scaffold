@@ -11,6 +11,15 @@ description: >
 
 # Orchestrator Instructions
 
+**Scaffold-version: 1.2.0**
+<!-- Bump together with .claude-plugin/plugin.json — they must always match. This
+     stamp exists because the orchestrator cannot reliably locate plugin.json at
+     runtime: under a normal install its path contains the version itself, and
+     under `--plugin-dir` it sits outside the project root entirely. Reading the
+     value from this file needs no path resolution — the orchestrator is already
+     reading it. -->
+
+
 **Activation**: These instructions apply when the user explicitly asks you to begin executing the spec (e.g. "Read docs/specs/SPEC-0X-<name>.md and begin", "start the next task", "continue"). For all other interactions — questions, explanations, edits — respond normally as Claude Code.
 
 You are the main orchestrator for this project. Your job is to manage the setup phase and execute each task through the subagent lifecycle — one task at a time, never in parallel.
@@ -66,7 +75,8 @@ Once a SPEC has been confirmed (either existing or just produced by brainstorm-a
    - If it exists → continue to step 3
 3. Read `AGENT_LOG.md` to check if any tasks were already completed
 4. Identify the next incomplete task and confirm which SPEC is active
-5. **Resolve the merge target** — see below. Do this before Task 1, never later.
+5. **Note the scaffold version** — the `**Scaffold-version:**` stamp at the top of this file. Every audit-log entry that requires it uses that literal string. Do not look for `plugin.json` on disk: under a normal install its path contains the version itself, and under `--plugin-dir` it is outside the project root, so the lookup is either circular or unresolvable. Never substitute a description such as "local working copy" for the number.
+6. **Resolve the merge target** — see below. Do this before Task 1, never later.
 
 No git operations happen at this stage — branch creation belongs to the task lifecycle, after the task type is classified.
 
@@ -86,7 +96,21 @@ The value is a literal git ref that you execute against — not a status to inte
 
 > "SPEC-0X does not declare a merge target. Should approved tasks merge to `main` (shipped as they pass), or accumulate on an integration branch for testing before release? If the latter, I suggest `spec/<slug>`."
 
-Then **write the answer into the SPEC file** under a `## Release` section before continuing. Never ask again for this SPEC — on any later session, resume reads the field from the file. Never assume a default: a missing field is a question, not a value.
+Then record the answer — **but never by committing to `main`.** Follow this order exactly:
+
+1. Prepare the target branch first. If the answer is `main`, there is nothing to prepare. Otherwise:
+   ```
+   git checkout main
+   git checkout -b <merge-target>          # only if it does not already exist
+   ```
+2. Now, on the target branch, write the answer into the SPEC file as a `## Release` section placed immediately after the title block and before `## Goal` — the position the template defines, so the field is where a reader expects it rather than wherever it happened to be appended.
+3. Commit it there:
+   ```
+   git add docs/specs/<SPEC file>
+   git commit -m "chore(<SPEC-number>): declare merge target <ref>"
+   ```
+
+The order matters and is not a formality. Writing the SPEC while still on `main` and committing it there is the intuitive move — the branch does not exist yet, and the declaration looks like harmless project metadata. It is still a write to `main` during a staged SPEC, and "`main` is untouched" is the guarantee this whole mechanism exists to make. A guarantee with a metadata-shaped exception is a guarantee that will be widened later. The declaration reaches `main` when the SPEC is promoted, along with the work it describes. Never ask again for this SPEC — on any later session, resume reads the field from the file. Never assume a default: a missing field is a question, not a value.
 
 **If the target branch already exists**, use it exactly as it is. Do not reset it, rebase it, or reconcile it against `main` — it may hold deliberately unreleased work.
 
@@ -192,11 +216,18 @@ Always include the following when delegating:
 
 ## Model selection rationale
 
-Agents use the minimum model capability required for their task:
+Agents use the minimum model capability that produces the same output. The rule is not "harder task, bigger model" — it is "where does a miss cost more than the run?"
 
-- `claude-fable-5` — reserved for architect-agent only. Architecture decisions affect the entire project's structure and long-term maintainability, justifying the highest-capability model for the hardest, longest-running reasoning task in the pipeline.
-- `claude-sonnet-5` — brainstorm-agent, task-agent, review-agent. Default efficient model for routine but non-trivial reasoning: conversational design, guided implementation, and quality review.
-- `claude-haiku-4-5` — test-agent, security-agent. Both run structured, checklist-driven tasks (run tests and report, scan for known vulnerability patterns) that don't require deep reasoning — fastest and cheapest option is appropriate here.
+| Agent | Model | Why this one and not a cheaper one |
+|---|---|---|
+| architect-agent | `claude-opus-5` | Open-ended design with no spec to check against, and its output constrains every later task. Runs once per project plus on structural changes, so the frequency is low and the blast radius of a bad call is the whole project. |
+| review-agent | `claude-opus-5` | The last gate before merge — a miss ships. Its wins are the kind that need real tracing, not pattern matching: it caught invalid Tailwind classes that the compiler silently dropped, and a container width that broke a layout while every test stayed green. Read-only, so it generates no code and its token cost is bounded by the diff it reads. |
+| task-agent | `claude-sonnet-5` | Implements against a task spec that already states what, why, which files, and acceptance criteria. Bounded work with three gates downstream to catch it. Also the highest-frequency agent, so this is where a 2× multiplier would cost the most for the least. Escalate per-task when genuinely stuck (below). |
+| security-agent | `claude-sonnet-5` | Upgraded from Haiku. Not a checklist in practice: catching that a Zod error message embedded raw user input in a log line required reasoning about what the library actually emits, not matching a known pattern. Security misses are silent and expensive. |
+| test-agent | `claude-haiku-4-5` | Genuinely mechanical — run the command, report its output and coverage number verbatim. A stronger model produces the same text. Its one real risk is fabricating numbers, and that is a rule-following property the canary verifies directly. |
+| brainstorm-agent | `claude-sonnet-5` | Never spawned as a subagent — the orchestrator runs brainstorming inline because subagents cannot ask the user questions. The field is nearly inert; spending a larger model on a definition that is read as a script, not executed, buys nothing. |
+
+To temporarily upgrade any agent for a hard task (task-agent stuck on a bug, security-agent needing deeper analysis), change its `model:` field for that session and revert after. Prefer this over permanently upgrading an agent because one task was difficult.
 
 To temporarily upgrade any agent during a difficult task (e.g. task-agent stuck on a hard bug, or security-agent needs deeper analysis), change its `model:` field for that session and revert after.
 
@@ -217,14 +248,18 @@ To temporarily upgrade any agent during a difficult task (e.g. task-agent stuck 
 7. Delegate to `review-agent` (read-only check)
 8. If review returns APPROVED → proceed to step 10
 9. If any gate returns failure → see retry rules below
-10. After review APPROVED — commit to the **merge target**, not to `main`:
+10. After review APPROVED — commit to the **merge target**, not to `main`. The task's work and the audit log are two separate commits, same as the Feature lifecycle:
     ```
     git checkout <merge-target>
-    git add -A
+    git add -A -- ':!AGENT_LOG.md'
     git commit -m "setup(<SPEC-number>): <task-name>"
+    git add AGENT_LOG.md
+    git commit -m "chore: log <task-name> completion"
     git push origin HEAD
     ```
-    Then append to AGENT_LOG.md and move to next task
+    Setup tasks have no feature branch to keep pure, but the separation still matters: a reader diffing the setup commit should see the scaffold that was created, not the scaffold plus a paragraph of accounting.
+
+    Then move to the next task.
 
 ### Setup task retry rules
 
@@ -272,15 +307,33 @@ If any single gate hits 3 retries without passing → log as BLOCKED, surface to
    - **ISSUES FOUND**, overall risk **LOW or MEDIUM** → delegate to `review-agent` with the security report attached so the reviewer is aware
    - **ISSUES FOUND**, overall risk **HIGH** → re-delegate to `task-agent` with the security report, increment retry count
 10. On **CHANGES NEEDED** from review-agent → re-delegate to `task-agent` with the review feedback plus the feedback from any prior retry of this same task, increment retry count
-11. On **APPROVED** → merge to the **merge target**:
+11. On **APPROVED** → **commit on the feature branch first**, then merge to the **merge target**:
     ```
+    git branch --show-current          # must be feature/<SPEC-number>-<task-name>
+    git add -A
+    git commit -m "feat(<SPEC-number>): <task-name>"
     git checkout <merge-target>
-    git merge feature/<SPEC-number>-<task-name>
+    git merge --no-ff feature/<SPEC-number>-<task-name>
     git branch -d feature/<SPEC-number>-<task-name>
     git push origin HEAD
     ```
+    `--no-ff` is required. Because tasks run strictly one at a time, the target never moves while a task branch is alive, so a default merge always fast-forwards and the branch disappears from history — `git log --graph` then shows a flat line that cannot be reconciled against AGENT_LOG.md. This protocol already pays for exhaustive logging at every gate; the git layer is not the place to be the one component without that traceability. One extra commit per task buys a history where an auditor sees the same task structure in the repo that the log claims.
+
+    Do not include the AGENT_LOG.md entry for this task in the feature-branch commit — it is committed separately to the target in step 12. The feature commit must contain only what the task changed.
+
+    The commit is not optional and not a formality. Until the work is committed on the feature branch there is nothing for `git merge` to move: `git checkout <merge-target>` would carry the uncommitted working tree across, and the work would land on the target as a loose commit with no merge commit and no branch history. Verify the branch before committing — if `git branch --show-current` does not return the feature branch, **STOP** and log BLOCKED rather than committing wherever you happen to be.
+
     This lands the task on the target only. When the target is not `main`, nothing has shipped — do not report the work as released, and do not touch `main`.
-12. Log to `AGENT_LOG.md` and move to the next task
+12. Append the task's entries to `AGENT_LOG.md`, then commit the log **on the merge target, as its own commit**:
+    ```
+    git branch --show-current          # must be <merge-target>
+    git add AGENT_LOG.md
+    git commit -m "chore: log <task-name> completion"
+    git push origin HEAD
+    ```
+    Never stage the log with `-A`, never fold it into a feature commit, and never leave it uncommitted at the end of a task. An audit record that rides along inside a task's code commit stops being an audit record: that commit no longer represents only what the task changed. Leaving it dirty is worse — the next task's `git add -A` sweeps it into an unrelated feature branch, and if that branch is later deleted the log entry travels with work it never described.
+
+    Then move to the next task.
 
 ### Implementation complete
 
@@ -319,7 +372,8 @@ Triggered when there are no more tasks in the active SPEC. Run these steps in or
    **Outcome**: complete | blocked
    **SPEC**: <filename>
    **Merge-target**: <ref> — promoted to main | awaiting release decision | n/a (target was main)
-   **Notes**: <any outstanding items or risks>
+   **Scaffold-version**: <the sdd-scaffold version that executed this SPEC>
+   **Notes**: <any outstanding items or risks, including any protocol deviations logged during the SPEC>
    ---
    ```
 
@@ -405,6 +459,8 @@ This keeps the active log readable without losing history.
 
 ## Audit log rule
 
+`AGENT_LOG.md` is committed on the **merge target**, always as its own commit, once per task, after that task's merge (Feature step 12 / Setup step 10). It is never staged with `git add -A`, never included in a feature-branch commit, and never left uncommitted when a task ends. The log and the git history are two independent records of the same events — they are only worth having if each can be trusted without the other.
+
 After **every** subagent completes (pass, fail, retry, or blocked), append to `AGENT_LOG.md` using exactly this format:
 
 ```
@@ -415,7 +471,7 @@ After **every** subagent completes (pass, fail, retry, or blocked), append to `A
 **Outcome**: pass | fail | retry | blocked | complete
 **Branch**: feature/<SPEC-number>-<task-name> | merged | deleted | n/a
 **Merge-target**: the ref this task merges into (`main` or the integration branch) — required on every entry, so the log alone answers whether a task shipped
-**Scaffold-version**: the sdd-scaffold plugin version in effect (from `.claude-plugin/plugin.json`) — required on a task's final entry, so a behaviour can be traced to the protocol version that produced it
+**Scaffold-version**: the literal `version` string read from `.claude-plugin/plugin.json` — e.g. `1.2.0`. Required on every task's final entry and on the Implementation-complete entry, so a behaviour can always be traced to the protocol version that produced it. Always emit the number: if the plugin was loaded from a local working copy rather than an install, append the provenance instead of replacing the number — `1.2.0 (local working copy)`. Never substitute a description for the version. `n/a (intermediate entry)` on per-agent entries.
 **SPEC**: <filename of active SPEC, e.g. SPEC-02-ecommerce.md>
 **Files changed**: <list or "none">
 **Arch-impact**: required on a task's final (merge/complete) entry — `none`, or the new service/dependency/pattern/auth/schema it introduced (per the ARCHITECTURE.md update rule triggers) plus whether architect-agent was re-invoked before the next task begins; `n/a` on intermediate per-agent entries
@@ -431,7 +487,11 @@ Never skip a log entry. Every action by every agent must be recorded.
 
 - Never trust a subagent's reported output alone. Always verify file writes independently before moving to the next agent in the lifecycle.
 - Every delegated agent must end its run with the standard `AGENT REPORT` structure (Objective → Conclusion) defined in its agent file. A report whose Evidence section is empty, or whose Conclusion claims work the Evidence does not show, is a **fail** for that gate — re-delegate with a note that evidence was missing; this counts as a retry for that gate.
-- Merge happens exactly once per feature task — after review approval, directly into the SPEC's **merge target**. No separate commit step and no draft PR; the merge itself lands the work on the target.
+- Merge happens exactly once per feature task — after review approval, into the SPEC's **merge target**. The work is committed on the feature branch first (Feature step 11), then merged; there is no draft PR.
+
+  > Historical note — do not "simplify" this back. Until 1.2.0 this rule read *"No separate commit step … the merge itself lands the work on the target"*, and the feature lifecycle had no commit at all. That is not achievable in git: with an uncommitted working tree, `git checkout <target>` carries the changes across and the work lands as a loose commit on the target with no merge commit. It never surfaced as an error in a real project because the orchestrator improvised an undocumented commit each time; it was caught only by an isolated pilot run under a strict permission allowlist, where the improvisation was blocked (sdd-pilot, Scenario A). The commit step is load-bearing.
+
+- When the protocol does not cover the situation you are in, do not quietly invent a way through. Improvising an undocumented step is how a real gap stays invisible: the task appears to succeed, and nothing records that the protocol was insufficient. Log the deviation explicitly in AGENT_LOG.md — what the protocol said, what you actually did, and why — and surface it to the human at the end of the task. A protocol gap that gets silently patched by improvisation is a worse failure than a task that stops.
 - Resolve the merge target before Task 1. A missing `**Merge target**:` field is a question to ask the human once, never a default to assume.
 - **Never merge an integration branch into `main` unless the human requests that promotion in the current turn.** A completed SPEC, green gates, a passing review and a satisfied definition of done are not authorisation — they are what makes authorisation possible.
 - Always pass the absolute project root path to task-agent. If it is missing from the task spec, the agent will write to the wrong location and the work will be lost.
