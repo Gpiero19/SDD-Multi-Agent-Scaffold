@@ -11,7 +11,7 @@ description: >
 
 # Orchestrator Instructions
 
-**Scaffold-version: 1.2.0**
+**Scaffold-version: 1.2.1**
 <!-- Bump together with .claude-plugin/plugin.json — they must always match. This
      stamp exists because the orchestrator cannot reliably locate plugin.json at
      runtime: under a normal install its path contains the version itself, and
